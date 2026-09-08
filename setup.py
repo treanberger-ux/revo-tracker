@@ -16,6 +16,7 @@ import sys
 import urllib.parse
 import urllib.request
 import json
+import time
 
 КОРЕНЬ = pathlib.Path(__file__).resolve().parent
 
@@ -35,11 +36,22 @@ def вызов(метод: str, **поля):
         {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
          for k, v in поля.items()}).encode()
     адрес = f"https://api.telegram.org/bot{ключ()}/{метод}"
-    with urllib.request.urlopen(urllib.request.Request(адрес, данные), timeout=30) as r:
-        ответ = json.load(r)
+    # Сеть на этой машине рвётся на ровном месте: 08.09.2026 три вызова из
+    # четырёх легли на таймауте рукопожатия TLS. Поэтому три попытки.
+    ответ = None
+    for попытка in range(3):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(адрес, данные), timeout=45) as r:
+                ответ = json.load(r)
+            break
+        except Exception as сбой:
+            if попытка == 2:
+                print(f"  {метод}: сеть не дала, {type(сбой).__name__}")
+                return {"ok": False, "description": str(сбой)}
+            time.sleep(3)
     состояние = "ок" if ответ.get("ok") else "ОШИБКА"
     print(f"  {метод}: {состояние}"
-          f"{'' if ответ.get('ok') else ' — ' + str(ответ.get('description'))}")
+          f"{'' if ответ.get('ok') else ': ' + str(ответ.get('description'))}")
     return ответ
 
 
