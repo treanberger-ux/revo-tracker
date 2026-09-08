@@ -176,13 +176,19 @@ function drank(confirmed){
 }
 
 // ---------- звук: всплеск в полосе 1,5-6 кГц
-let an, buf, micOn = false, lastSip = 0, riseAt = 0, floorDb = -80;
+let an, buf, micOn = false, lastSip = 0, riseAt = 0, floorDb = -80, микПоток = null;
 async function toggleMic(){
-  if (micOn) { micOn = false; el('bMic').classList.remove('on');
-               el('stMic').textContent = 'микрофон выключен'; return; }
+  if (micOn) {
+    micOn = false;
+    микПоток?.getTracks().forEach(t => t.stop());   // иначе микрофон остаётся включён
+    микПоток = null;
+    el('bMic').classList.remove('on');
+    el('stMic').textContent = 'микрофон выключен'; return;
+  }
   try {
     const s = await navigator.mediaDevices.getUserMedia(
       {audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+    микПоток = s;
     const c = контекст();
     an = c.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0.25;
     c.createMediaStreamSource(s).connect(an);
