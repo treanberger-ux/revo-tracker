@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>деРево</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg:#12161c; --tile:#1b2028; --tile2:#222834; --line:#2b323d;
+    --ink:#e8ecf2; --dim:#8d96a5; --gold:#e8c15a; --warn:#d9734f; --ok:#6fb98f;
+    --pad:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    padding:var(--pad) var(--pad) 90px; overflow-x:hidden;
+  }
+  .card{
+    background:linear-gradient(180deg,#2a3038,#1a1f26);
+    border-radius:14px; padding:8px; box-shadow:0 8px 26px rgba(0,0,0,.45);
+  }
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+  .t{
+    background:var(--tile); border:1px solid var(--line); border-radius:6px;
+    padding:9px 7px; min-height:78px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+  }
+  .t .lab{font-size:8.5px;letter-spacing:.05em;color:var(--dim);text-transform:uppercase;line-height:1.25}
+  .t .big{font-size:21px;font-weight:700;margin:3px 0 1px;font-variant-numeric:tabular-nums}
+  .t .sub{font-size:10px;color:var(--dim)}
+  .t.star{background:var(--tile2);font-size:30px}
+  .banner{
+    text-align:center;padding:9px 0 3px;font-size:17px;font-weight:600;color:var(--gold)
+  }
+  h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+     margin:20px 0 8px;font-weight:600}
+  .row{display:flex;gap:8px}
+  button{
+    flex:1;background:var(--tile);color:var(--ink);border:1px solid var(--line);
+    border-radius:11px;padding:13px 10px;font-size:14px;font-weight:600;font-family:inherit;
+  }
+  button:active{transform:scale(.98)}
+  button.warn{background:#3a2119;border-color:#5d3325;color:#f0a184}
+  button.on{background:#1d3329;border-color:#2f5a45;color:var(--ok)}
+  button:disabled{opacity:.45}
+  .sens{background:var(--tile);border:1px solid var(--line);border-radius:11px;padding:11px}
+  .meter{height:7px;background:#0e1116;border-radius:4px;overflow:hidden;margin:7px 0 3px;position:relative}
+  .meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .07s linear}
+  .meter u{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+  .st{display:flex;justify-content:space-between;font-size:11px;color:var(--dim)}
+  video{width:100%;border-radius:9px;background:#000;display:block;margin-top:8px}
+  .hint{font-size:11.5px;color:var(--dim);margin-top:7px;line-height:1.5}
+  .set{display:flex;align-items:center;gap:9px;margin:7px 0}
+  .set label{flex:1;font-size:13px;color:var(--dim)}
+  .set input{
+    width:88px;background:#0e1116;border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:7px 9px;font:600 14px inherit;text-align:right
+  }
+  .log{font:11px/1.6 ui-monospace,Menlo,monospace;color:var(--dim);max-height:110px;overflow:auto;
+       background:#0e1116;border-radius:9px;padding:9px;margin-top:8px}
+  .foot{position:fixed;left:0;right:0;bottom:0;padding:10px;background:linear-gradient(180deg,transparent,var(--bg) 30%)}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="grid" id="grid"></div>
+  <div class="banner" id="banner">Не пью!</div>
+</div>
+
+<h2>Сигналы извне</h2>
+<div class="sens">
+  <div class="row">
+    <button id="bMic">Слушать сёрбанье</button>
+    <button id="bCam">Смотреть в камеру</button>
+  </div>
+
+  <div class="meter" id="meterBox"><i id="meter"></i><u id="thr"></u></div>
+  <div class="st"><span id="stMic">микрофон выключен</span><span id="stCam">камера выключена</span></div>
+
+  <video id="v" playsinline muted hidden></video>
+  <canvas id="c" hidden></canvas>
+
+  <div class="set">
+    <label>Порог звука, дБ над фоном</label>
+    <input id="sens" type="number" value="14" min="4" max="30" step="1">
+  </div>
+
+  <p class="hint">Засчитывается глоток, когда всплеск в полосе 1,5–6 кГц держится
+  от 0,1 до 1,2 секунды. Если камера включена и в кадре была банка или стакан
+  за последние 4 секунды, событие помечается подтверждённым.</p>
+
+  <div class="log" id="log"></div>
+</div>
+
+<h2>Настройки нормы</h2>
+<div class="sens">
+  <div class="set"><label>Привычная норма, банок в день</label><input id="rate" type="number" value="3" min="0" step="0.5"></div>
+  <div class="set"><label>Цена банки, €</label><input id="price" type="number" value="1.6" min="0" step="0.1"></div>
+  <div class="set"><label>Объём, мл</label><input id="ml" type="number" value="500" min="0" step="10"></div>
+  <div class="set"><label>Кофеин, мг на банку</label><input id="caf" type="number" value="150" min="0" step="5"></div>
+  <div class="set"><label>Сахар, г на банку</label><input id="sug" type="number" value="55" min="0" step="1"></div>
+  <p class="hint">Числа не замерены, а взяты как разумные для банки энергетика
+  0,5 л. Поставь свои, они сразу пересчитают всю карточку.</p>
+</div>
+
+<div class="foot">
+  <div class="row">
+    <button class="warn" id="bDrank">Сёрбнул</button>
+    <button id="bReset">Начать заново</button>
+  </div>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+// ---------- хранилище: в Telegram облачное, вне его локальное
+const store = {
+  async get(k){
+    if (tg?.CloudStorage?.getItem) {
+      return new Promise(r => tg.CloudStorage.getItem(k, (e,v) => r(e ? null : v)));
+    }
+    return localStorage.getItem(k);
+  },
+  async set(k,v){
+    if (tg?.CloudStorage?.setItem) return new Promise(r => tg.CloudStorage.setItem(k, v, () => r()));
+    localStorage.setItem(k,v);
+  }
+};
+
+const D = { since: Date.now(), drank: 0, confirmed: 0 };
+const CFG = ['rate','price','ml','caf','sug','sens'];
+
+async function load(){
+  const raw = await store.get('revo');
+  if (raw) { try { Object.assign(D, JSON.parse(raw)); } catch(e){} }
+  const c = await store.get('revo_cfg');
+  if (c) { try { const o = JSON.parse(c); CFG.forEach(k => { if (o[k] != null) el(k).value = o[k]; }); } catch(e){} }
+}
+async function save(){
+  await store.set('revo', JSON.stringify(D));
+  const o = {}; CFG.forEach(k => o[k] = el(k).value);
+  await store.set('revo_cfg', JSON.stringify(o));
+}
+const el = id => document.getElementById(id);
+const num = id => parseFloat(el(id).value) || 0;
+
+// ---------- карточка
+function fmtDur(ms){
+  const m = Math.floor(ms/60000), d = Math.floor(m/1440);
+  const h = Math.floor((m%1440)/60), mm = m%60;
+  return [d, String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0')];
+}
+function render(){
+  const ms = Date.now() - D.since;
+  const [days, hhmm] = fmtDur(ms);
+  const norm = num('rate') * ms / 86400000;          // сколько выпил бы по привычке
+  const skipped = Math.max(0, norm - D.drank);        // не выпито
+  const money = skipped * num('price');
+  const sugar = skipped * num('sug');
+  const caff  = skipped * num('caf');
+  const liq   = skipped * num('ml') / 1000;
+  const sleep = caff / 100 * 1.2;                     // шуточный пересчёт в часы сна
+
+  const tiles = [
+    ['не выпито<br>рево', skipped.toFixed(0), 'банок'],
+    ['держишься', days, hhmm],
+    ['сэкономлено<br>денег', money.toFixed(1), 'евро'],
+    ['не получено<br>сахара', sugar.toFixed(0), 'грамм'],
+    ['не получено<br>кофеина', caff.toFixed(0), 'миллиграмм'],
+    ['не выпито<br>жидкости', liq.toFixed(1), 'литра'],
+    ['лишних часов<br>сна', sleep.toFixed(0), 'часов'],
+  ];
+  el('grid').innerHTML = tiles.map(([l,b,s]) =>
+    `<div class="t"><div class="lab">${l}</div><div class="big">${b}</div><div class="sub">${s}</div></div>`
+  ).join('') + `<div class="t star">${D.drank > 0 ? '\u{1F979}' : '⭐'}</div>`;
+
+  el('banner').textContent = D.drank === 0
+    ? 'Не пью!'
+    : `Сёрбнуто ${D.drank}, из них подтверждено камерой ${D.confirmed}`;
+}
+
+function drank(confirmed){
+  D.drank += 1;
+  if (confirmed) D.confirmed += 1;
+  tg?.HapticFeedback?.notificationOccurred?.('warning');
+  log(confirmed ? 'глоток подтверждён камерой' : 'глоток засчитан по звуку');
+  save(); render();
+}
+
+function log(s){
+  const t = new Date().toTimeString().slice(0,8);
+  el('log').innerHTML = `${t}  ${s}<br>` + el('log').innerHTML;
+}
+
+// ---------- звук: всплеск в полосе 1,5-6 кГц
+let ac, an, buf, micOn = false, lastSip = 0, riseAt = 0, floorDb = -80;
+async function toggleMic(){
+  if (micOn) { ac?.close(); ac = null; micOn = false; el('bMic').classList.remove('on');
+               el('stMic').textContent = 'микрофон выключен'; return; }
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ac.createMediaStreamSource(s);
+    an = ac.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0.25;
+    src.connect(an);
+    buf = new Float32Array(an.frequencyBinCount);
+    micOn = true; el('bMic').classList.add('on'); el('stMic').textContent = 'слушаю';
+    loopAudio();
+  } catch(e){ el('stMic').textContent = 'микрофон не дали: ' + e.name; log('микрофон: ' + e.name); }
+}
+function loopAudio(){
+  if (!micOn) return;
+  an.getFloatFrequencyData(buf);
+  const hz = ac.sampleRate / an.fftSize;
+  const a = Math.round(1500/hz), b = Math.round(6000/hz);
+  let sum = 0; for (let i=a;i<b;i++) sum += buf[i];
+  const db = sum/(b-a);
+  floorDb = floorDb*0.995 + db*0.005;                       // медленный фон
+  const over = db - floorDb;
+  const thr = num('sens');
+  el('meter').style.width = Math.max(0, Math.min(100, (over/30)*100)) + '%';
+  el('thr').style.left = (thr/30*100) + '%';
+
+  const now = performance.now();
+  if (over > thr) { if (!riseAt) riseAt = now; }
+  else if (riseAt) {
+    const dur = now - riseAt; riseAt = 0;
+    if (dur > 100 && dur < 1200 && now - lastSip > 2500) {
+      lastSip = now;
+      drank(now - lastSeen < 4000);
+    }
+  }
+  requestAnimationFrame(loopAudio);
+}
+
+// ---------- камера: ищем банку или стакан
+let camOn = false, model = null, lastSeen = -1e9;
+async function toggleCam(){
+  if (camOn) { el('v').srcObject?.getTracks().forEach(t=>t.stop()); camOn = false;
+               el('v').hidden = true; el('bCam').classList.remove('on');
+               el('stCam').textContent = 'камера выключена'; return; }
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}});
+    el('v').srcObject = s; el('v').hidden = false; await el('v').play();
+    camOn = true; el('bCam').classList.add('on'); el('stCam').textContent = 'гружу модель';
+    if (!model) {
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js');
+      model = await cocoSsd.load({base:'lite_mobilenet_v2'});
+    }
+    el('stCam').textContent = 'смотрю';
+    loopCam();
+  } catch(e){ el('stCam').textContent = 'камера не дала: ' + e.name; log('камера: ' + e.name); }
+}
+function loadScript(src){
+  return new Promise((res,rej) => { const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+}
+const ЦЕЛИ = ['bottle','cup','wine glass'];
+async function loopCam(){
+  if (!camOn) return;
+  const v = el('v'), c = el('c');
+  if (v.videoWidth) {
+    c.width = 320; c.height = 320 * v.videoHeight / v.videoWidth;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    try {
+      const p = await model.detect(c, 5, 0.45);
+      const hit = p.find(x => ЦЕЛИ.includes(x.class));
+      if (hit) { lastSeen = performance.now(); el('stCam').textContent = 'вижу: ' + hit.class; }
+      else el('stCam').textContent = 'смотрю';
+    } catch(e){}
+  }
+  setTimeout(loopCam, 600);
+}
+
+// ---------- кнопки
+el('bMic').onclick = toggleMic;
+el('bCam').onclick = toggleCam;
+el('bDrank').onclick = () => drank(false);
+el('bReset').onclick = () => {
+  D.since = Date.now(); D.drank = 0; D.confirmed = 0;
+  save(); render(); log('счётчик обнулён');
+};
+CFG.forEach(k => el(k).addEventListener('change', () => { save(); render(); }));
+
+load().then(() => { render(); setInterval(render, 30000); });
+</script>
+</body>
+</html>
