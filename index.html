@@ -15,9 +15,12 @@
     background:var(--bg); color:var(--ink);
     font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     padding:10px 10px 90px; overflow-x:hidden;
+    transition:background .7s ease, filter .7s ease;
   }
+  body.gore{ background:#26060a; filter:saturate(2.3) contrast(1.12) hue-rotate(-12deg); }
   .card{background:linear-gradient(180deg,#2a3038,#1a1f26);border-radius:14px;
-        padding:8px;box-shadow:0 8px 26px rgba(0,0,0,.45)}
+        padding:8px;box-shadow:0 8px 26px rgba(0,0,0,.45);transition:box-shadow .7s ease}
+  body.gore .card{box-shadow:0 8px 40px rgba(140,0,0,.65)}
   .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
   .t{background:var(--tile);border:1px solid var(--line);border-radius:6px;
      padding:9px 7px;min-height:78px;display:flex;flex-direction:column;
@@ -44,6 +47,24 @@
   video{width:100%;border-radius:9px;background:#000;display:block;margin-top:8px}
   .foot{position:fixed;left:0;right:0;bottom:0;padding:10px;
         background:linear-gradient(180deg,transparent,var(--bg) 30%)}
+
+  /* ---------- конец */
+  #death{
+    position:fixed; inset:0; z-index:99; opacity:0; pointer-events:none;
+    background:radial-gradient(circle at 50% 42%, #7a0f10 0%, #360406 45%, #150102 100%);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    transition:opacity .75s ease;
+  }
+  #death.show{ opacity:1; pointer-events:auto; }
+  #death h1{
+    font-size:38px; letter-spacing:.06em; color:#ff2b2b; font-weight:800;
+    text-shadow:0 0 26px rgba(255,0,0,.75), 0 3px 0 #4a0000;
+    transform:scale(.82); opacity:0; transition:transform .5s cubic-bezier(.2,1.6,.4,1), opacity .5s ease;
+  }
+  #death.show h1{ transform:scale(1); opacity:1; }
+  #death .why{ color:#ffb3b3; font-size:13.5px; margin-top:6px; opacity:.9 }
+  #death .tap{ color:#ff8a8a; font-size:12px; margin-top:14px; opacity:.75 }
+  #box{ width:min(74vw,320px); height:min(74vw,320px); margin-top:6px }
 </style>
 </head>
 <body>
@@ -66,10 +87,14 @@
 </div>
 
 <div class="foot">
-  <div class="row">
-    <button class="warn" id="bDrank">Сёрбнул</button>
-    <button id="bReset">Начать заново</button>
-  </div>
+  <div class="row"><button class="warn" id="bDrank">Сёрбнул</button></div>
+</div>
+
+<div id="death">
+  <h1>ВЫ ПОГИБЛИ</h1>
+  <div class="why" id="dwhy"></div>
+  <canvas id="box"></canvas>
+  <div class="tap">коснись гроба, чтобы начать сначала</div>
 </div>
 
 <script>
@@ -78,7 +103,8 @@ if (tg) { tg.ready(); tg.expand(); }
 
 // Числа банки 0,5 л. Не замерены, поставлены разумными.
 const ЦЕНА = 1.6, ОБЪЁМ = 500, КОФЕИН = 150, САХАР = 55;
-const ПОРОГ_ДБ = 14;          // всплеск над фоном, при котором глоток засчитан
+const ПОРОГ_ДБ = 14;      // всплеск над фоном, при котором глоток засчитан
+const КРИТ = 12;          // банок до конца
 
 const store = {
   async get(k){
@@ -94,50 +120,61 @@ const store = {
 
 const D = { drank: 0, confirmed: 0, last: 0 };
 const el = id => document.getElementById(id);
-
 async function load(){
   const raw = await store.get('revo');
   if (raw) { try { Object.assign(D, JSON.parse(raw)); } catch(e){} }
 }
 const save = () => store.set('revo', JSON.stringify(D));
 
-// ---------- звук глотка: случайный клип, плавный вход и затухание
-let ac = null, клипы = [], звукГотов = false;
+// ---------- сердце: синтез прямо в Web Audio, файлов не нужно
+let ac = null, мастер = null, бьётся = false, таймер = null, мёртв = false;
 function контекст(){
-  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (!ac) {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    мастер = ac.createGain();
+    мастер.gain.value = 0.0001;
+    мастер.connect(ac.destination);
+  }
   if (ac.state === 'suspended') ac.resume();
   return ac;
 }
-async function грузитьЗвук(){
-  if (звукГотов) return;
-  const c = контекст();
-  const адреса = [1,2,3,4,5,6].map(i => `sfx/sip${i}.mp3`);
-  клипы = (await Promise.all(адреса.map(async a => {
-    try { return await c.decodeAudioData(await (await fetch(a)).arrayBuffer()); }
-    catch(e){ return null; }
-  }))).filter(Boolean);
-  звукГотов = клипы.length > 0;
+function удар(когда, сила){
+  const c = ac;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(76, когда);
+  o.frequency.exponentialRampToValueAtTime(34, когда + 0.17);
+  g.gain.setValueAtTime(0.0001, когда);
+  g.gain.exponentialRampToValueAtTime(сила, когда + 0.014);
+  g.gain.exponentialRampToValueAtTime(0.0001, когда + 0.24);
+  o.connect(g).connect(мастер);
+  o.start(когда); o.stop(когда + 0.28);
 }
-// Клип длиннее двух секунд играется двухсекундным куском со случайного места:
-// так сюда можно положить лицензированную музыку, ничего не меняя в коде.
-function сыграть(){
-  if (!звукГотов) return;
-  const c = контекст();
-  const b = клипы[Math.floor(Math.random() * клипы.length)];
-  const дл = Math.min(b.duration, 2.0);
-  const запас = Math.max(0, b.duration - дл);
-  const старт = запас > 0 ? Math.random() * запас : 0;
-  const вход = Math.min(0.25, дл * 0.2), уход = Math.min(0.45, дл * 0.35);
-  const t = c.currentTime;
-  const src = c.createBufferSource(); src.buffer = b;
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(1, t + вход);
-  g.gain.setValueAtTime(1, t + Math.max(вход, дл - уход));
-  g.gain.exponentialRampToValueAtTime(0.0001, t + дл);
-  src.connect(g).connect(c.destination);
-  src.start(t, старт, дл);
-  src.stop(t + дл + 0.05);
+const пульс = () => Math.min(196, 62 + D.drank * 11);   // ударов в минуту
+function тик(){
+  if (!бьётся) return;
+  const период = 60 / пульс();
+  const t = ac.currentTime + 0.02;
+  удар(t, 0.6);                                   // «туп»
+  удар(t + Math.min(0.17, период * 0.3), 0.36);   // «тук»
+  таймер = setTimeout(тик, период * 1000);
+}
+function завестиСердце(){
+  if (бьётся) return;
+  контекст();
+  бьётся = true;
+  мастер.gain.cancelScheduledValues(ac.currentTime);
+  мастер.gain.setValueAtTime(0.0001, ac.currentTime);
+  мастер.gain.exponentialRampToValueAtTime(0.9, ac.currentTime + 1.2);  // плавно
+  тик();
+}
+function остановитьСердце(резко){
+  бьётся = false; clearTimeout(таймер);
+  if (!ac) return;
+  const t = ac.currentTime;
+  мастер.gain.cancelScheduledValues(t);
+  мастер.gain.setValueAtTime(Math.max(0.0001, мастер.gain.value), t);
+  мастер.gain.exponentialRampToValueAtTime(0.0001, t + (резко ? 0.6 : 1.4));
 }
 
 // ---------- карточка
@@ -156,23 +193,98 @@ function render(){
     ['получено<br>сахара', (n*САХАР).toFixed(0), 'грамм'],
     ['получено<br>кофеина', (n*КОФЕИН).toFixed(0), 'миллиграмм'],
     ['выпито<br>жидкости', (n*ОБЪЁМ/1000).toFixed(1), 'литра'],
-    ['часов сна<br>долой', (n*КОФЕИН/100*1.2).toFixed(0), 'часов'],
+    ['пульс', пульс(), 'ударов в минуту'],
   ];
   el('grid').innerHTML = tiles.map(([l,b,s]) =>
     `<div class="t"><div class="lab">${l}</div><div class="big">${b}</div><div class="sub">${s}</div></div>`
-  ).join('') + `<div class="t star">${n === 0 ? '⭐' : (n < 4 ? '\u{1F979}' : '\u{1F92F}')}</div>`;
-
+  ).join('') + `<div class="t star">${n === 0 ? '⭐' : (n < КРИТ/2 ? '\u{1F979}' : '\u{1F92F}')}</div>`;
   el('banner').textContent = n === 0
     ? 'Пока ни глотка'
     : `Сёрбнуто ${n}, из них подтверждено камерой ${D.confirmed}`;
 }
 
 function drank(confirmed){
+  if (мёртв) return;
   D.drank += 1; D.last = Date.now();
   if (confirmed) D.confirmed += 1;
-  сыграть();
+  завестиСердце();
   tg?.HapticFeedback?.notificationOccurred?.('warning');
   save(); render();
+  if (D.drank >= КРИТ) конец();
+}
+
+// ---------- конец
+function конец(){
+  if (мёртв) return;
+  мёртв = true;
+  остановитьСердце(true);
+  tg?.HapticFeedback?.notificationOccurred?.('error');
+  el('dwhy').textContent =
+    `${D.drank} банок, ${(D.drank*КОФЕИН/1000).toFixed(1)} грамма кофеина`;
+  document.body.classList.add('gore');
+  el('death').hidden = false;
+  requestAnimationFrame(() => el('death').classList.add('show'));
+  гроб();
+}
+function воскреснуть(){
+  мёртв = false;
+  D.drank = 0; D.confirmed = 0; D.last = 0; save(); render();
+  document.body.classList.remove('gore');
+  el('death').classList.remove('show');
+}
+el('death').onclick = воскреснуть;
+
+// ---------- гроб: своя геометрия, чтобы ничей файл не тащить
+let сцена = null;
+async function гроб(){
+  if (сцена) return;
+  try {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
+  } catch(e){ return; }
+  const холст = el('box');
+  const r = new THREE.WebGLRenderer({canvas:холст, antialias:true, alpha:true});
+  r.setPixelRatio(Math.min(2, devicePixelRatio));
+  r.setSize(холст.clientWidth, холст.clientHeight, false);
+  const с = new THREE.Scene();
+  const к = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+  к.position.set(0, 1.5, 4.2); к.lookAt(0, 0, 0);
+
+  // силуэт гроба сверху: голова уже, плечи шире, к ногам сужается
+  const ф = new THREE.Shape();
+  ф.moveTo(-0.30, 1.05); ф.lineTo(0.30, 1.05); ф.lineTo(0.52, 0.52);
+  ф.lineTo(0.24, -1.05); ф.lineTo(-0.24, -1.05); ф.lineTo(-0.52, 0.52);
+  ф.lineTo(-0.30, 1.05);
+  const г = new THREE.ExtrudeGeometry(ф, {depth:0.34, bevelEnabled:true,
+                                          bevelSize:0.03, bevelThickness:0.03, bevelSegments:2});
+  г.center();
+  const дерево = new THREE.MeshStandardMaterial({color:0x3d2418, roughness:0.72, metalness:0.12});
+  const тело = new THREE.Mesh(г, дерево);
+
+  const золото = new THREE.MeshStandardMaterial({color:0xd8b45c, roughness:0.32, metalness:0.85});
+  const вдоль = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.72, 0.03), золото);
+  const поперёк = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.09, 0.03), золото);
+  вдоль.position.set(0, 0.12, 0.20); поперёк.position.set(0, 0.30, 0.20);
+
+  const вертушка = new THREE.Group();
+  вертушка.add(тело, вдоль, поперёк);
+  const наклон = new THREE.Group();
+  наклон.add(вертушка);
+  // кладём гроб крышкой вверх и слегка приподнимаем к зрителю; после этого
+  // локальная ось Z вертушки смотрит вверх, и вращение по ней даёт круг
+  наклон.rotation.x = -Math.PI/2 + 0.55;
+  с.add(наклон);
+
+  с.add(new THREE.AmbientLight(0x552020, 1.5));
+  const л1 = new THREE.DirectionalLight(0xffd9c0, 2.0); л1.position.set(2, 3, 3);
+  const л2 = new THREE.DirectionalLight(0xff3030, 1.2); л2.position.set(-3, -1, 1);
+  с.add(л1, л2);
+
+  сцена = true;
+  (function кадр(){
+    вертушка.rotation.z += 0.016;          // полный оборот примерно за 6,5 секунды
+    r.render(с, к);
+    requestAnimationFrame(кадр);
+  })();
 }
 
 // ---------- звук: всплеск в полосе 1,5-6 кГц
@@ -180,7 +292,7 @@ let an, buf, micOn = false, lastSip = 0, riseAt = 0, floorDb = -80, микПот
 async function toggleMic(){
   if (micOn) {
     micOn = false;
-    микПоток?.getTracks().forEach(t => t.stop());   // иначе микрофон остаётся включён
+    микПоток?.getTracks().forEach(t => t.stop());
     микПоток = null;
     el('bMic').classList.remove('on');
     el('stMic').textContent = 'микрофон выключен'; return;
@@ -207,7 +319,6 @@ function loopAudio(){
   floorDb = floorDb*0.995 + db*0.005;
   const over = db - floorDb;
   el('meter').style.width = Math.max(0, Math.min(100, (over/30)*100)) + '%';
-
   const now = performance.now();
   if (over > ПОРОГ_ДБ) { if (!riseAt) riseAt = now; }
   else if (riseAt) {
@@ -259,13 +370,19 @@ async function loopCam(){
   setTimeout(loopCam, 600);
 }
 
-// ---------- кнопки
-el('bMic').onclick = () => { грузитьЗвук(); toggleMic(); };
-el('bCam').onclick = () => { грузитьЗвук(); toggleCam(); };
-el('bDrank').onclick = async () => { await грузитьЗвук(); drank(false); };
-el('bReset').onclick = () => { D.drank = 0; D.confirmed = 0; D.last = 0; save(); render(); };
+el('bMic').onclick = toggleMic;
+el('bCam').onclick = toggleCam;
+el('bDrank').onclick = () => drank(false);
 
-load().then(() => { render(); setInterval(render, 30000); });
+load().then(() => {
+  render();
+  if (D.drank >= КРИТ) конец();
+  setInterval(render, 30000);
+  // Браузер не даёт запустить звук без жеста, поэтому сердце ждёт касания.
+  document.addEventListener('pointerdown', () => {
+    if (!мёртв && D.drank > 0) завестиСердце();
+  }, {once: true});
+});
 </script>
 </body>
 </html>
